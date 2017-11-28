@@ -34,9 +34,9 @@ typedef struct {
 
 sNmeaParcer nmeaParcer[NMEA_MESSAGE_MAX] = {
 		{"GGA", _GGA, "%2d%2d%2d.%3d,%f,%c,%f,%c,%d,%d,%f,%f,%c"},
-		{"GSA", _GSA, "%c,%d, %d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d"}, // &mode_c, &mode_int, &pdop, &hdop, &vdop
-		{"GSV", _GSV, "%i,%i,%i,%i,%f,%f,%i"}, // &message_counter, &message_current, &total_sv_view, &sv_prn_number, &elevation_degrees, &azimuth_degrees, &snr_db_value
-		{"VTG", _VTG, "%f,%c,%...,%...,%i"} // &track_made_good, &fixet_text_T, &speed
+		{"GSA", _GSA, "%c,%i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,,,,%f,%f,%f"},
+		{"GSV", _GSV, "%3d,%3d,%3d,%3d,%f,%f,%i"},
+		{"VTG", _VTG, "%f,%c,,%*c,%f"}
 };
 
 bool gpsParceNmeaRaw(char *pData);
@@ -47,7 +47,7 @@ int main(void) {
 			{"$GNGGA,094650.000,5548.6477,N,03750.0997,E,1,11,1.00,274.4,M,14.3,M,,*76"},
 			{"$GPGSA,A,3,03,17,19,12,14,01,32,11,22,,,,1.35,1.00,0.91*07"},
 			{"$BDGSV,1,1,04,09,41,070,28,12,36,240,,11,31,308,31,17,10,072,*64"},
-			{"$GNVTG,190.77,T,,M,0.00,N,0.00,K,A*2B"}
+			{"$GNVTG,190.77,T,,M,15.8,N,0.00,K,A*2B"}
 	};
 
 	printf("NMEA: startParcer\r\n");
@@ -87,7 +87,7 @@ bool gpsParceNmeaRaw(char *pData) {
 	float track_made_good = 0;
 	char fixet_text_T = 0;
 	//
-	int speed = 0;
+	float speed = 0;
 	char *pChar = 0;
 
 	for(msgType = 0; msgType < NMEA_MESSAGE_MAX; msgType++) {
@@ -98,60 +98,35 @@ bool gpsParceNmeaRaw(char *pData) {
 			if(pChar != NULL) {
 
 				switch(nmeaParcer[msgType].type) {
-				case _GGA: // {"$GNGGA,094650.000,5548.6477,N,03750.0997,E,1,11,1.00,274.4,M,14.3,M,,*76"}, //,%d,%d,%f,%f,%c
+				case _GGA: //	$GNGGA,094650.000,5548.6477,N,03750.0997,E,1,11,1.00,274.4,M,14.3,M,,*76
 					sscanf(pChar+1, nmeaParcer[msgType].format, &timeStruct.tm_hour, &timeStruct.tm_min, &timeStruct.tm_sec, &idle_int,
 							&lat, &lat_sign, &lon, &lon_sign, &precision, &satellites, &HDOP, &height, &height_units);
 					printf("NMEA: parcing raw: %d,%d,%d,%c,%f,%c,%d,%d,%f,%f,%d\r\n", timeStruct.tm_hour, timeStruct.tm_min, timeStruct.tm_sec,
 							lat_sign, lon, lon_sign, precision, satellites, HDOP, height, height_units);
 					return true;
 					break;
-				case _GSA : // $GPGSA,A,3,03,17,19,12,14,01,32,11,22,,,,1.35,1.00,0.91*07
+				case _GSA : //	$GPGSA,A,3,03,17,19,12,14,01,32,11,22,,,,1.35,1.00,0.91*07
 					sscanf(pChar+1, nmeaParcer[msgType].format, &mode_c, &mode_int,
 							&pdop, &hdop, &vdop);
 					printf("NMEA: parcing raw: %c,%i,%f,%f,%f\r\n", mode_c, mode_int, pdop, hdop, vdop);
 					return true;
 					break;
-				case _GSV :
-					sscanf(pChar+1, "%c,%i, %i,%i,%i,%i,%i,%i,%i,%i,%i,%i,%i,%i, %i,%i,%i", &mode_c, &mode_int,
-							&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,
-							&pdop, &hdop, &vdop);
-					printf("NMEA: parcing raw: %c,%d,%d,%d,%d\r\n", mode_c, mode_int, pdop, hdop, vdop);
+				case _GSV : //	$BDGSV,1,1,04,09,41,070,28,12,36,240,,11,31,308,31,17,10,072,*64
+					sscanf(pChar+1, "%3d,%3d,%3d,%3d,%f,%f,%i", &message_counter, &message_current, &total_sv_view, &sv_prn_number, &elevation_degrees, &azimuth_degrees, &snr_db_value);
+					printf("NMEA: parcing raw: %i,%i,%i,%i,%f,%f,%i\r\n", message_counter, message_current, total_sv_view, sv_prn_number, elevation_degrees, azimuth_degrees, snr_db_value);
 					return true;
 					break;
-				case _VTG :
-					sscanf(pChar+1, "%c,%i, %i,%i,%i,%i,%i,%i,%i,%i,%i,%i,%i,%i, %i,%i,%i", &mode_c, &mode_int,
-							&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,
-							&pdop, &hdop, &vdop);
-					printf("NMEA: parcing raw: %c,%d,%d,%d,%d\r\n", mode_c, mode_int, pdop, hdop, vdop);
+				case _VTG : //	$GNVTG,190.77,T,,M,15.12,N,0.00,K,A*2B
+					sscanf(pChar+1, "%f,%c,,%*c,%f", &track_made_good, &fixet_text_T, &speed);
+					printf("NMEA: parcing raw: %f,%c,%f\r\n", track_made_good, fixet_text_T, speed);
 					return true;
 					break;
 				case _UNKNOWN :
-					sscanf(pChar+1, "%c,%i, %i,%i,%i,%i,%i,%i,%i,%i,%i,%i,%i,%i, %i,%i,%i", &mode_c, &mode_int,
-							&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,&idle_int,
-							&pdop, &hdop, &vdop);
-					printf("NMEA: parcing raw: %c,%d,%d,%d,%d\r\n", mode_c, mode_int, pdop, hdop, vdop);
-					return true;
 					break;
 				default : break;
 				}
 			}
 		}
 	}
-
-	//	msgType = gnssGetNmeaMgsType(pData, size);
-	//	if(_UNKNOWN != msgType) {
-	//		gpsTakeNmeaValues(&gnssNmeaMask[msgType], &gnssDataStruct, pData, size);
-	//		if (msgType == _GSA) {
-	//			gnssDataStruct.gnssType = gnssGetGnssType(pData, size);
-	//		}
-	//		if(gnssDataStruct.sats >= 3) {
-	//			 gnssLastFixData = gnssDataStruct;
-	//#ifdef DEBUG_NMEA
-	//			 Ol_sprintf(tGpsBuff, "GNSS: lat-%4.8f lon-%4.8f\0", gnssDataStruct.latitude, gnssDataStruct.longitude);
-	//			 DBGLog(tGpsBuff);
-	//#endif
-	//		}
-	//		DBGLog("NNEAL %s", pData);
-	//	}
 	return result;
 }
