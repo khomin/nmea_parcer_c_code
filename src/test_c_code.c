@@ -15,7 +15,7 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define NMEA_MESSAGE_MAX		4
+#define NMEA_MESSAGE_MAX		5
 #define NMEA_MESSAGE_MAX_LEN	150
 
 typedef enum {
@@ -23,6 +23,7 @@ typedef enum {
 	_GSA,
 	_GSV,
 	_VTG,
+	_RMC,
 	_UNKNOWN=-1
 }eGnssNmeaMsgType;
 
@@ -34,9 +35,10 @@ typedef struct {
 
 sNmeaParcer nmeaParcer[NMEA_MESSAGE_MAX] = {
 		{"GGA", _GGA, "%2d%2d%2d.%3d,%f,%c,%f,%c,%d,%d,%f,%f,%c"},
-		{"GSA", _GSA, "%c,%i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,,,,%f,%f,%f"},
+		{"GSA", _GSA, "%c,%i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%*i,%f,%f,%f"},
 		{"GSV", _GSV, "%3d,%3d,%3d,%3d,%f,%f,%i"},
-		{"VTG", _VTG, "%f,%c,,%*c,%f"}
+		{"VTG", _VTG, "%f,%c,%*d,%*c,%f"},
+		{"RMC", _RMC, "%*2d%*2d%*2d.%*3d,%*c,%*f,%*c,%*f,%*c,%*f,%*f,%2d%2d%2d"}
 };
 
 bool gpsParceNmeaRaw(char *pData);
@@ -47,7 +49,8 @@ int main(void) {
 			{"$GNGGA,094650.000,5548.6477,N,03750.0997,E,1,11,1.00,274.4,M,14.3,M,,*76"},
 			{"$GPGSA,A,3,03,17,19,12,14,01,32,11,22,,,,1.35,1.00,0.91*07"},
 			{"$BDGSV,1,1,04,09,41,070,28,12,36,240,,11,31,308,31,17,10,072,*64"},
-			{"$GNVTG,190.77,T,,M,15.8,N,0.00,K,A*2B"}
+			{"$GNVTG,190.77,T,,M,15.8,N,0.00,K,A*2B"},
+			{"$GNRMC,093005.000,A,5548.6223,N,03750.1092,E,3.54,185.46,291117,,,A*7C"}
 	};
 
 	printf("NMEA: startParcer\r\n");
@@ -66,7 +69,11 @@ int main(void) {
 bool gpsParceNmeaRaw(char *pData) {
 	bool result = false;
 	uint8_t msgType = 0;
+	char data[NMEA_MESSAGE_MAX_LEN] = {0};
+	uint16_t len = 0;
 	//
+	int dd = 0;
+	float ss = 0;
 	uint32_t timestamp = 0;
 	char mode_c = 'A';	// automatic
 	int mode_int = 1; // no fix
@@ -89,6 +96,25 @@ bool gpsParceNmeaRaw(char *pData) {
 	//
 	float speed = 0;
 	char *pChar = 0;
+	len = strlen(pData);
+	if(len == 0) {
+		return false;
+	}
+
+	uint16_t index = 0;
+	uint16_t repIndex = 0;
+	while(index < len) {
+		if(repIndex > 0) {
+			if(pData[index] == ',') {
+				if(data[repIndex-1] == ',') {
+					data[repIndex++] = '0';
+				}
+			}
+		}
+		data[repIndex++] = pData[index];
+		index++;
+	}
+	pData = data;
 
 	for(msgType = 0; msgType < NMEA_MESSAGE_MAX; msgType++) {
 		if(strstr (pData, (char*)nmeaParcer[msgType].header) != NULL) {
@@ -101,8 +127,25 @@ bool gpsParceNmeaRaw(char *pData) {
 				case _GGA: //	$GNGGA,094650.000,5548.6477,N,03750.0997,E,1,11,1.00,274.4,M,14.3,M,,*76
 					sscanf(pChar+1, nmeaParcer[msgType].format, &timeStruct.tm_hour, &timeStruct.tm_min, &timeStruct.tm_sec, &idle_int,
 							&lat, &lat_sign, &lon, &lon_sign, &precision, &satellites, &HDOP, &height, &height_units);
-					printf("NMEA: parcing raw: %d,%d,%d,%c,%f,%c,%d,%d,%f,%f,%d\r\n", timeStruct.tm_hour, timeStruct.tm_min, timeStruct.tm_sec,
-							lat_sign, lon, lon_sign, precision, satellites, HDOP, height, height_units);
+					dd = (int)((float)(lat)/100); //37
+					ss = (float)(lat) - (dd * 100); // 50,1122
+					lat = dd + (ss/60); //31.6227773333333333
+					if(lat != 0) {
+						if (lat_sign == 'S') {
+							lat = (0-lat);
+						}
+					}
+					dd = (int)((float)(lon)/100); //37
+					ss = (float)(lon) - (dd * 100); // 50,1122
+					lon = dd + (ss/60); //31.6227773333333333
+					if(lon != 0) {
+						if (lon_sign=='S') {
+							lon = (0-lon);
+						}
+					}
+					printf("NMEA: parcing raw: %d,%d,%d,%f,%c,%f,%c,%d,%d,%f,%f,%d\r\n",
+							timeStruct.tm_hour, timeStruct.tm_min, timeStruct.tm_sec,
+							lat, lat_sign, lon, lon_sign, precision, satellites, HDOP, height, height_units);
 					return true;
 					break;
 				case _GSA : //	$GPGSA,A,3,03,17,19,12,14,01,32,11,22,,,,1.35,1.00,0.91*07
@@ -112,13 +155,20 @@ bool gpsParceNmeaRaw(char *pData) {
 					return true;
 					break;
 				case _GSV : //	$BDGSV,1,1,04,09,41,070,28,12,36,240,,11,31,308,31,17,10,072,*64
-					sscanf(pChar+1, "%3d,%3d,%3d,%3d,%f,%f,%i", &message_counter, &message_current, &total_sv_view, &sv_prn_number, &elevation_degrees, &azimuth_degrees, &snr_db_value);
+					sscanf(pChar+1, nmeaParcer[msgType].format,
+							&message_counter, &message_current, &total_sv_view, &sv_prn_number,
+							&elevation_degrees, &azimuth_degrees, &snr_db_value);
 					printf("NMEA: parcing raw: %i,%i,%i,%i,%f,%f,%i\r\n", message_counter, message_current, total_sv_view, sv_prn_number, elevation_degrees, azimuth_degrees, snr_db_value);
 					return true;
 					break;
 				case _VTG : //	$GNVTG,190.77,T,,M,15.12,N,0.00,K,A*2B
-					sscanf(pChar+1, "%f,%c,,%*c,%f", &track_made_good, &fixet_text_T, &speed);
+					sscanf(pChar+1, nmeaParcer[msgType].format, &track_made_good, &fixet_text_T, &speed);
 					printf("NMEA: parcing raw: %f,%c,%f\r\n", track_made_good, fixet_text_T, speed);
+					return true;
+					break;
+				case _RMC:
+					sscanf(pChar+1, nmeaParcer[msgType].format, &timeStruct.tm_mday, &timeStruct.tm_mon, &timeStruct.tm_year);
+					printf("NMEA: parcing raw: %d.%d.%d\r\n", timeStruct.tm_mday, timeStruct.tm_mon, timeStruct.tm_year);
 					return true;
 					break;
 				case _UNKNOWN :
